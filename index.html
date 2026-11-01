@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="utf-8">
+    <title>myTrip</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://www.gstatic.com/charts/loader.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background-color: #f4f6f8; }
+        #login-screen {
+            display: none; 
+            flex-direction: column; justify-content: center; align-items: center; height: 100vh;
+        }
+        #loading-screen {
+            display: flex; 
+            flex-direction: column; justify-content: center; align-items: center; height: 100vh;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading-screen">
+        <h2>🔄 系統載入中，請稍候...</h2>
+    </div>
+
+    <div id="login-screen">
+        <h2>請先登入 Google 以繼續</h2>
+        <div id="googleBtnDiv"></div>
+    </div>
+
+    <script>
+        var webAppGas = "myTrip_GAS";
+        
+        // 這是你唯一需要寫死在前端的網址 (路由器網址)
+        const APP_GAS = "https://script.google.com/macros/s/AKfycbydkStLun0kX0qUCbWPBnWIDDgP7SGoOtzG_rVOBCB0Z_dU_F46-LOqvFxnO4X7kvGBAg/exec";
+        const ROUTER_URL = APP_GAS + "?action=getData";
+        
+        // 宣告一個全域變數，用來存放動態取得的網址
+        window.APP_CONFIG = {}; 
+        
+        window.onload = async function() {
+            // 預設先顯示「載入中」畫面
+            document.getElementById('loading-screen').style.display = 'flex';
+            document.getElementById('login-screen').style.display = 'none';
+        
+            try {
+                // 1. 先去入口網址取得真實的 API 網址
+                const response = await fetch(ROUTER_URL);
+                window.APP_CONFIG = await response.json();
+                //console.log(JSON.stringify(window.APP_CONFIG));
+                //console.log("gitHub:" + window.APP_CONFIG[webAppGas]);
+                //console.log("gitHub:" + window.APP_CONFIG["myApp_SID"]);
+                
+                // 2. 取得網址後，才開始檢查登入狀態
+                const savedSession = localStorage.getItem('myAppSession'); 
+                
+                if (savedSession) {
+                    // 如果有鑰匙，直接去跟真實 GAS 要畫面
+                    loadDashboard(savedSession);
+                } else {
+                    // 3. 【關鍵新增】如果是未登入狀態，手動初始化 Google 登入按鈕
+                    initializeGoogleSignIn();
+                    // 如果沒有鑰匙，顯示登入畫面
+                    showLoginScreen();
+                }
+            } catch (error) {
+                console.error("無法取得伺服器設定", error);
+                alert("系統初始化失敗，請檢查網路連線");
+            }
+        };
+  
+        // 2. Google 登入按鈕成功後觸發
+        function handleCredentialResponse(response) {
+            const googleToken = response.credential; // 統一命名為 googleToken
+            
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('loading-screen').style.display = 'flex';
+
+            // 向 GAS 發送 action: 'loginAndGetSession' 來換取長效鑰匙
+            fetch(window.APP_CONFIG[webAppGas], {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ 
+                    myAppSID: window.APP_CONFIG["myApp_SID"],
+                    action: 'loginAndGetSession', 
+                    token: googleToken 
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // 登入成功，將長效期 Token 存起來
+                    localStorage.setItem('myAppSession', data.sessionToken);
+                    console.log("登入成功，已取得長效授權！");
+                    // 將拿到的長效鑰匙傳給 loadDashboard 繼續載入畫面
+                    loadDashboard(data.sessionToken);
+                } else {
+                    alert("登入失敗：" + data.message);
+                    showLoginScreen();
+                }
+            })
+            .catch(err => {
+                console.error("登入請求失敗", err);
+                showLoginScreen();
+            });
+        }
+
+        // 3. 負責向 GAS 拿 HTML 的核心邏輯 (使用長效鑰匙)
+        function loadDashboard(sessionToken) {
+            fetch(window.APP_CONFIG[webAppGas], {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ 
+                    myAppSID: window.APP_CONFIG["myApp_SID"],
+                    action: 'getHtml', 
+                    token: sessionToken 
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    document.open();
+                    document.write(data.html);
+                    document.close();
+                    document.title = data.title || "股票資產管理儀表板";
+                } else {
+                    console.log('連線失效：', data.message);
+                    // 統一清除 'myAppSession'
+                    localStorage.removeItem('myAppSession'); 
+                    showLoginScreen();
+                }
+            })
+            .catch(error => {
+                console.error(error);
+                alert('載入失敗，請確認網路連線');
+                showLoginScreen();
+            });
+        }
+
+        // 4. 顯示登入畫面
+        function showLoginScreen() {
+            document.getElementById('loading-screen').style.display = 'none';
+            document.getElementById('login-screen').style.display = 'flex';
+        }
+
+        async function handleLogout() {
+          const sessionToken = localStorage.getItem('myAppSession');
+  
+          if (sessionToken) {
+            try {
+              // 1. 通知後端把 Google Sheet 裡的那列資料刪掉，讓這把鑰匙徹底失效
+              await callGAS('logoutUser', sessionToken);
+            } catch (e) {
+              console.warn("通知後端登出時發生異常，但前端仍會清除狀態", e);
+            }
+          }
+          
+          // 2. 清除瀏覽器裡的鑰匙
+          localStorage.removeItem('myAppSession');
+          
+          // 3. 重新載入網頁，系統抓不到 Token 就會自動退回 Google 登入畫面
+          alert("已成功登出！");
+          window.location.reload(); 
+        }
+
+    // 【新增函式】負責用動態取得的 clientId 來產生按鈕
+    function initializeGoogleSignIn() {
+        // 確保 Google library 已經載入完畢
+        if (window.google && google.accounts && google.accounts.id) {
+            google.accounts.id.initialize({
+                // 從路由器設定中抓取 clientId
+                client_id: window.APP_CONFIG.clientId, 
+                callback: handleCredentialResponse, // 對應你原本的成功回呼函式
+                auto_prompt: false
+            });
+            
+            // 2. 畫出按鈕！
+            google.accounts.id.renderButton(
+                // 👇 【關鍵修改】改成抓取你剛剛設定的普通 ID
+                document.getElementById('googleBtnDiv'),
+                { theme: 'outline', size: 'large' }
+            );
+        } else {
+            console.error("Google 登入 SDK 尚未載入完成");
+            // 可以加上一個小延遲重試機制，確保載入成功
+            setTimeout(initializeGoogleSignIn, 500); 
+        }
+    }
+        
+    </script>
+</body>
+</html>
