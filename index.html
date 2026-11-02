@@ -4,7 +4,6 @@
     <meta charset="utf-8">
     <title>myTrip</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://www.gstatic.com/charts/loader.js"></script>
     <style>
         body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background-color: #f4f6f8; }
         #login-screen {
@@ -49,8 +48,8 @@
                 const response = await fetch(ROUTER_URL);
                 window.APP_CONFIG = await response.json();
                 //console.log(JSON.stringify(window.APP_CONFIG));
-                //console.log("gitHub:" + window.APP_CONFIG[webAppGas]);
-                //console.log("gitHub:" + window.APP_CONFIG["myApp_SID"]);
+                //console.log("gitHub:" + window.APP_CONFIG?.webAppData?.[webAppGas]);
+                //console.log("gitHub:" + window.APP_CONFIG?.webAppData?.["myApp_SID"]);
                 
                 // 2. 取得網址後，才開始檢查登入狀態
                 const savedSession = localStorage.getItem('myAppSession'); 
@@ -78,11 +77,11 @@
             document.getElementById('loading-screen').style.display = 'flex';
 
             // 向 GAS 發送 action: 'loginAndGetSession' 來換取長效鑰匙
-            fetch(window.APP_CONFIG[webAppGas], {
+            fetch(window.APP_CONFIG?.webAppData?.[webAppGas], {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({ 
-                    myAppSID: window.APP_CONFIG["myApp_SID"],
+                    myAppSID: window.APP_CONFIG?.webAppData?.["myApp_SID"],
                     action: 'loginAndGetSession', 
                     token: googleToken 
                 })
@@ -108,11 +107,11 @@
 
         // 3. 負責向 GAS 拿 HTML 的核心邏輯 (使用長效鑰匙)
         function loadDashboard(sessionToken) {
-            fetch(window.APP_CONFIG[webAppGas], {
+            fetch(window.APP_CONFIG?.webAppData?.[webAppGas], {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({ 
-                    myAppSID: window.APP_CONFIG["myApp_SID"],
+                    myAppSID: window.APP_CONFIG?.webAppData?.["myApp_SID"],
                     action: 'getHtml', 
                     token: sessionToken 
                 })
@@ -170,7 +169,7 @@
         if (window.google && google.accounts && google.accounts.id) {
             google.accounts.id.initialize({
                 // 從路由器設定中抓取 clientId
-                client_id: window.APP_CONFIG.clientId, 
+                client_id: window.APP_CONFIG?.webAppData?.clientId, 
                 callback: handleCredentialResponse, // 對應你原本的成功回呼函式
                 auto_prompt: false
             });
